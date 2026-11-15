@@ -161,6 +161,8 @@ const today = unlockedDays();
 // -------------------------------------------------------------
 const params = new URLSearchParams(location.search);
 const showTeaser = (TEST_MODE && params.has('teaser')) || (today === 0 && !(TEST_MODE && params.has('test')));
+// Fanen skal ikke røpe noe før 1. desember
+if (!showTeaser) document.title = 'Adventskalender';
 if (showTeaser) {
   $('teaser').hidden = false;
   $('home').hidden = true;
