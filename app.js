@@ -135,15 +135,16 @@ const YEAR = 2026;
 //  HUSK: sett TEST_MODE til false før kalenderen sendes!
 // -------------------------------------------------------------
 const TEST_MODE = true;
+// Testmodus krever en hemmelig nøkkel i adressen, f.eks. ?test=24&k=kakao7
+const TEST_KEY = 'kakao7';
+const params = new URLSearchParams(location.search);
+const TEST_ON = TEST_MODE && params.get('k') === TEST_KEY;
 
-function unlockedDays() {
-  if (TEST_MODE) {
-    const t = parseInt(new URLSearchParams(location.search).get('test'), 10);
-    if (t >= 0 && t <= 24) return t;
-  }
+// Dagnummer (0–24) ut fra en dato, i norsk tid
+function daysFrom(date) {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Europe/Oslo', year: 'numeric', month: 'numeric', day: 'numeric'
-  }).formatToParts(new Date());
+  }).formatToParts(date);
   const get = (type) => parseInt(parts.find((p) => p.type === type).value, 10);
   const y = get('year'), m = get('month'), d = get('day');
   if (y > YEAR) return 24;
@@ -151,26 +152,59 @@ function unlockedDays() {
   return Math.min(d, 24);
 }
 
+function unlockedDays() {
+  if (TEST_ON) {
+    const t = parseInt(params.get('test'), 10);
+    if (t >= 0 && t <= 24) return t;
+  }
+  // Uten testmodus starter alt låst til datoen er sjekket mot serveren
+  return TEST_ON ? daysFrom(new Date()) : 0;
+}
+
+// Henter ekte dato fra GitHub sin server, så det ikke hjelper å stille klokka på telefonen
+async function serverDate() {
+  try {
+    const res = await fetch(location.pathname + '?t=' + Date.now(), { method: 'HEAD', cache: 'no-store' });
+    const h = res.headers.get('date');
+    const d = h ? new Date(h) : null;
+    if (d && !isNaN(d)) return d;
+  } catch (e) { /* ingen nett */ }
+  return null;
+}
+
 // -------------------------------------------------------------
 const $ = (id) => document.getElementById(id);
-const today = unlockedDays();
+let today = unlockedDays();
 
 // -------------------------------------------------------------
 //  Teaser: før 1. desember vises bare en innpakket gave.
-//  (I testmodus: ?test=N viser kalenderen, ?teaser viser teaseren.)
+//  (I testmodus: ?test=N&k=… viser kalenderen, ?teaser&k=… viser teaseren.)
 // -------------------------------------------------------------
-const params = new URLSearchParams(location.search);
-const showTeaser = (TEST_MODE && params.has('teaser')) || (today === 0 && !(TEST_MODE && params.has('test')));
-// Fanen skal ikke røpe noe før 1. desember
-if (!showTeaser) document.title = 'Adventskalender';
-if (showTeaser) {
-  $('teaser').hidden = false;
-  $('home').hidden = true;
+let showTeaser = TEST_ON ? params.has('teaser') || !params.has('test') && today === 0 : true;
+function applyTeaser() {
+  $('teaser').hidden = !showTeaser;
+  if (showTeaser) $('home').hidden = true;
+  // Fanen og overskriften skal ikke røpe noe før 1. desember
+  document.title = showTeaser ? 'Surprise' : 'Adventskalender';
+  $('cal-title').textContent = showTeaser ? '' : 'Adventskalender';
+}
+applyTeaser();
+{
   const gift = $('gift');
   gift.addEventListener('click', () => {
     gift.classList.remove('wiggle'); void gift.offsetWidth; gift.classList.add('wiggle');
   });
   gift.addEventListener('animationend', (e) => { if (e.animationName === 'bow-wiggle') gift.classList.remove('wiggle'); });
+}
+if (!TEST_ON) {
+  serverDate().then((d) => {
+    today = daysFrom(d || new Date());
+    if (today > 0) {
+      showTeaser = false;
+      applyTeaser();
+      route();
+    }
+  });
 }
 let busy = false;
 let toastTimer;
@@ -424,10 +458,10 @@ window.addEventListener('hashchange', route);
 
 // -------------------------------------------------------------
 //  Kun for testing: knapper for å starte på nytt og vise løsningen.
-//  Vises bare når TEST_MODE er på og adressen har ?test=
+//  Vises bare når TEST_MODE er på og adressen har ?test=N&k=<TEST_KEY>
 //  Forsvinner automatisk når TEST_MODE settes til false.
 // -------------------------------------------------------------
-if (TEST_MODE && new URLSearchParams(location.search).has('test')) {
+if (TEST_ON && params.has('test')) {
   const bar = document.createElement('div');
   bar.className = 'test-bar';
   const reset = document.createElement('button');
